@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Flying Bird</title>
+<style>
+html,body{height:100%;margin:0;background:#bfe6f2;overflow:hidden;touch-action:manipulation;user-select:none}
+canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+let W,H,dpr;
+function resize(){
+  dpr=window.devicePixelRatio||1;
+  W=cv.clientWidth;H=cv.clientHeight;
+  cv.width=W*dpr;cv.height=H*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener('resize',resize);resize();
+
+let best=0;
+try{best=+localStorage.getItem('fb_best')||0}catch(e){}
+
+let state='ready',bird,pipes,score,t=0,groundX=0;
+const GRAV=1500, JUMP=-460, SPEED=170, PW=62, SPACING=230, GROUND=70;
+const GAP=()=>Math.max(150,H*0.26);
+
+function reset(){
+  bird={x:W*0.28,y:H/2,vy:0,r:15};
+  pipes=[];score=0;t=0;
+  spawn(W+60);
+}
+function spawn(x){
+  const g=GAP(),min=70,max=H-GROUND-g-70;
+  pipes.push({x,top:min+Math.random()*Math.max(10,max-min),g,passed:false});
+}
+
+// TAP = JUMP
+function flap(){
+  if(state==='ready') state='play';
+  if(state==='play') bird.vy=JUMP;
+  else if(state==='over'&&t>0.5){reset();state='ready'}
+}
+addEventListener('pointerdown',e=>{e.preventDefault();flap()});
+addEventListener('keydown',e=>{
+  if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault();flap()}
+});
+
+function die(){
+  state='over';t=0;
+  if(score>best){best=score;try{localStorage.setItem('fb_best',best)}catch(e){}}
+}
+
+function update(dt){
+  t+=dt;
+  if(state==='play'){
+    bird.vy+=GRAV*dt;
+    bird.y+=bird.vy*dt;
+    groundX=(groundX-SPEED*dt)%24;
+
+    pipes.forEach(p=>{
+      p.x-=SPEED*dt;
+      if(!p.passed&&p.x+PW<bird.x){p.passed=true;score++}
+      // DAMAGE ZONE (pipe) collision
+      const hitX=bird.x+bird.r-4>p.x&&bird.x-bird.r+4<p.x+PW;
+      if(hitX&&(bird.y-bird.r+4<p.top||bird.y+bird.r-4>p.top+p.g)) die();
+    });
+
+    if(pipes[0]&&pipes[0].x<-PW) pipes.shift();
+    const last=pipes[pipes.length-1];
+    if(last.x<W-SPACING) spawn(W+20);
+
+    // ground / sky collision
+    if(bird.y+bird.r>H-GROUND||bird.y-bird.r<0) die();
+  }else if(state==='ready'){
+    bird.y=H/2+Math.sin(t*4)*8;
+  }else if(state==='over'){
+    if(bird.y+bird.r<H-GROUND){bird.vy+=GRAV*dt;bird.y+=bird.vy*dt}
+  }
+}
+
+function drawPipe(p){
+  ctx.fillStyle='#2f7d57';
+  ctx.fillRect(p.x,0,PW,p.top);
+  ctx.fillRect(p.x,p.top+p.g,PW,H);
+  ctx.fillStyle='#1f5c3f';
+  ctx.fillRect(p.x-4,p.top-22,PW+8,22);
+  ctx.fillRect(p.x-4,p.top+p.g,PW+8,22);
+}
+
+function drawBird(){
+  ctx.save();
+  ctx.translate(bird.x,bird.y);
+  ctx.rotate(Math.max(-0.5,Math.min(1.2,bird.vy/600)));
+  ctx.fillStyle='#f2a516';
+  ctx.beginPath();ctx.ellipse(0,0,bird.r+3,bird.r,0,0,7);ctx.fill();
+  const flapY=Math.sin(performance.now()/70)*5;
+  ctx.fillStyle='rgba(0,0,0,.2)';
+  ctx.beginPath();ctx.ellipse(-5,2+flapY*(state==='play'?1:.3),8,5,0,0,7);ctx.fill();
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(7,-5,5,0,7);ctx.fill();
+  ctx.fillStyle='#000';ctx.beginPath();ctx.arc(9,-5,2.2,0,7);ctx.fill();
+  ctx.fillStyle='#e8562a';
+  ctx.beginPath();ctx.moveTo(15,-1);ctx.lineTo(24,2);ctx.lineTo(15,6);ctx.fill();
+  ctx.restore();
+}
+
+function text(s,x,y,size){
+  ctx.font='bold '+size+'px "Trebuchet MS",system-ui,sans-serif';
+  ctx.textAlign='center';
+  ctx.lineWidth=5;ctx.strokeStyle='rgba(0,0,0,.35)';ctx.strokeText(s,x,y);
+  ctx.fillStyle='#fff';ctx.fillText(s,x,y);
+}
+
+function draw(){
+  ctx.fillStyle='#bfe6f2';ctx.fillRect(0,0,W,H);
+  pipes.forEach(drawPipe);
+  ctx.fillStyle='#8a6a3d';ctx.fillRect(0,H-GROUND,W,GROUND);
+  ctx.fillStyle='#6f522b';
+  for(let x=groundX;x<W;x+=24) ctx.fillRect(x,H-GROUND,12,10);
+  drawBird();
+  text(score,W/2,70,48);
+  if(state==='ready'){
+    text('Tap to fly',W/2,H*0.3,34);
+    text('Pass through the gaps',W/2,H*0.3+34,18);
+  }
+  if(state==='over'){
+    text('Game over',W/2,H*0.32,40);
+    text('Score '+score+'   Best '+best,W/2,H*0.32+40,22);
+    if(t>0.5) text('Tap to play again',W/2,H*0.32+80,20);
+  }
+}
+
+let last=performance.now();
+function loop(now){
+  const dt=Math.min(0.033,(now-last)/1000);
+  last=now;
+  update(dt);draw();
+  requestAnimationFrame(loop);
+}
+reset();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
